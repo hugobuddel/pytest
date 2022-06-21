@@ -55,7 +55,7 @@ def _compare_approx(
         max_sizes[0] = max(max_sizes[0], len(index))
         max_sizes[1] = max(max_sizes[1], len(obtained))
         max_sizes[2] = max(max_sizes[2], len(expected))
-    explanation = [
+    return [
         f"comparison failed. Mismatched elements: {len(different_ids)} / {number_of_elements}:",
         f"Max absolute difference: {max_abs_diff}",
         f"Max relative difference: {max_rel_diff}",
@@ -63,7 +63,6 @@ def _compare_approx(
         f"{indexes:<{max_sizes[0]}} | {obtained:<{max_sizes[1]}} | {expected:<{max_sizes[2]}}"
         for indexes, obtained, expected in message_list
     ]
-    return explanation
 
 
 # builtin pytest.approx helper
@@ -135,11 +134,10 @@ class ApproxBase:
 
 def _recursive_sequence_map(f, x):
     """Recursively map a function over a sequence of arbitary depth"""
-    if isinstance(x, (list, tuple)):
-        seq_type = type(x)
-        return seq_type(_recursive_sequence_map(f, xi) for xi in x)
-    else:
+    if not isinstance(x, (list, tuple)):
         return f(x)
+    seq_type = type(x)
+    return seq_type(_recursive_sequence_map(f, xi) for xi in x)
 
 
 class ApproxNumpy(ApproxBase):
@@ -455,9 +453,7 @@ class ApproxScalar(ApproxBase):
         if math.isinf(abs(self.expected)):  # type: ignore[arg-type]
             return False
 
-        # Return true if the two numbers are within the tolerance.
-        result: bool = abs(self.expected - actual) <= self.tolerance
-        return result
+        return abs(self.expected - actual) <= self.tolerance
 
     # Ignore type because of https://github.com/python/mypy/issues/4266.
     __hash__ = None  # type: ignore
@@ -929,8 +925,11 @@ def raises(
     if not args:
         match: Optional[Union[str, Pattern[str]]] = kwargs.pop("match", None)
         if kwargs:
-            msg = "Unexpected keyword arguments passed to pytest.raises: "
-            msg += ", ".join(sorted(kwargs))
+            msg = (
+                "Unexpected keyword arguments passed to pytest.raises: "
+                + ", ".join(sorted(kwargs))
+            )
+
             msg += "\nUse context-manager form instead?"
             raise TypeError(msg)
         return RaisesContext(expected_exception, message, match)

@@ -83,9 +83,8 @@ def create_new_paste(contents: Union[str, bytes]) -> str:
             urlopen(url, data=urlencode(params).encode("ascii")).read().decode("utf-8")
         )
     except OSError as exc_info:  # urllib errors
-        return "bad response: %s" % exc_info
-    m = re.search(r'href="/raw/(\w+)"', response)
-    if m:
+        return f"bad response: {exc_info}"
+    if m := re.search(r'href="/raw/(\w+)"', response):
         return f"{url}/show/{m.group(1)}"
     else:
         return "bad response: invalid format ('" + response + "')"

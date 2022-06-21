@@ -117,7 +117,7 @@ def get_scope_package(node, fixturedef: "FixtureDef[object]"):
 
     cls = pytest.Package
     current = node
-    fixture_package_name = "{}/{}".format(fixturedef.baseid, "__init__.py")
+    fixture_package_name = f"{fixturedef.baseid}/__init__.py"
     while current and (
         type(current) is not cls or fixture_package_name != current.nodeid
     ):
@@ -278,8 +278,9 @@ def reorder_items(items: Sequence[nodes.Item]) -> List[nodes.Item]:
         item_d: Dict[_Key, Deque[nodes.Item]] = defaultdict(deque)
         items_by_argkey[scope] = item_d
         for item in items:
-            keys = dict.fromkeys(get_parametrized_fixture_keys(item, scope), None)
-            if keys:
+            if keys := dict.fromkeys(
+                get_parametrized_fixture_keys(item, scope), None
+            ):
                 d[item] = keys
                 for key in keys:
                     item_d[key].append(item)
@@ -319,12 +320,14 @@ def reorder_items_atscope(
             item = items_deque.popleft()
             if item in items_done or item in no_argkey_group:
                 continue
-            argkeys = dict.fromkeys(
-                (k for k in scoped_argkeys_cache.get(item, []) if k not in ignore), None
-            )
-            if not argkeys:
-                no_argkey_group[item] = None
-            else:
+            if argkeys := dict.fromkeys(
+                (
+                    k
+                    for k in scoped_argkeys_cache.get(item, [])
+                    if k not in ignore
+                ),
+                None,
+            ):
                 slicing_argkey, _ = argkeys.popitem()
                 # We don't have to remove relevant items from later in the
                 # deque because they'll just be ignored.
@@ -335,6 +338,8 @@ def reorder_items_atscope(
                     fix_cache_order(i, argkeys_cache, items_by_argkey)
                     items_deque.appendleft(i)
                 break
+            else:
+                no_argkey_group[item] = None
         if no_argkey_group:
             no_argkey_group = reorder_items_atscope(
                 no_argkey_group, argkeys_cache, items_by_argkey, scope.next_lower()
@@ -463,8 +468,7 @@ class FixtureRequest:
         """Class (can be None) where the test function was collected."""
         if self.scope not in ("class", "function"):
             raise AttributeError(f"cls not available in {self.scope}-scoped context")
-        clscol = self._pyfuncitem.getparent(_pytest.python.Class)
-        if clscol:
+        if clscol := self._pyfuncitem.getparent(_pytest.python.Class):
             return clscol.obj
 
     @property
@@ -613,19 +617,19 @@ class FixtureRequest:
             param = NOTSET
             param_index = 0
             has_params = fixturedef.params is not None
-            fixtures_not_supported = getattr(funcitem, "nofuncargs", False)
-            if has_params and fixtures_not_supported:
-                msg = (
-                    "{name} does not support fixtures, maybe unittest.TestCase subclass?\n"
-                    "Node id: {nodeid}\n"
-                    "Function type: {typename}"
-                ).format(
-                    name=funcitem.name,
-                    nodeid=funcitem.nodeid,
-                    typename=type(funcitem).__name__,
-                )
-                fail(msg, pytrace=False)
             if has_params:
+                fixtures_not_supported = getattr(funcitem, "nofuncargs", False)
+                if fixtures_not_supported:
+                    msg = (
+                        "{name} does not support fixtures, maybe unittest.TestCase subclass?\n"
+                        "Node id: {nodeid}\n"
+                        "Function type: {typename}"
+                    ).format(
+                        name=funcitem.name,
+                        nodeid=funcitem.nodeid,
+                        typename=type(funcitem).__name__,
+                    )
+                    fail(msg, pytrace=False)
                 frame = inspect.stack()[3]
                 frameinfo = inspect.getframeinfo(frame[0])
                 source_path = absolutepath(frameinfo.filename)
@@ -636,18 +640,8 @@ class FixtureRequest:
                     )
                 except ValueError:
                     source_path_str = str(source_path)
-                msg = (
-                    "The requested fixture has no parameter defined for test:\n"
-                    "    {}\n\n"
-                    "Requested fixture '{}' defined in:\n{}"
-                    "\n\nRequested here:\n{}:{}".format(
-                        funcitem.nodeid,
-                        fixturedef.argname,
-                        getlocation(fixturedef.func, funcitem.config.rootpath),
-                        source_path_str,
-                        source_lineno,
-                    )
-                )
+                msg = f"The requested fixture has no parameter defined for test:\n    {funcitem.nodeid}\n\nRequested fixture '{fixturedef.argname}' defined in:\n{getlocation(fixturedef.func, funcitem.config.rootpath)}\n\nRequested here:\n{source_path_str}:{source_lineno}"
+
                 fail(msg, pytrace=False)
 
         subrequest = SubRequest(
@@ -802,13 +796,12 @@ class FixtureLookupError(LookupError):
             try:
                 lines, _ = inspect.getsourcelines(get_real_func(function))
             except (OSError, IndexError, TypeError):
-                error_msg = "file %s, line %s: source code not available"
-                addline(error_msg % (fspath, lineno + 1))
+                addline(f"file {fspath}, line {lineno + 1}: source code not available")
             else:
                 addline(f"file {fspath}, line {lineno + 1}")
-                for i, line in enumerate(lines):
+                for line in lines:
                     line = line.rstrip()
-                    addline("  " + line)
+                    addline(f"  {line}")
                     if line.lstrip().startswith("def"):
                         break
 
@@ -817,16 +810,13 @@ class FixtureLookupError(LookupError):
             available = set()
             parentid = self.request._pyfuncitem.parent.nodeid
             for name, fixturedefs in fm._arg2fixturedefs.items():
-                faclist = list(fm._matchfactories(fixturedefs, parentid))
-                if faclist:
+                if faclist := list(fm._matchfactories(fixturedefs, parentid)):
                     available.add(name)
             if self.argname in available:
-                msg = " recursive dependency involving fixture '{}' detected".format(
-                    self.argname
-                )
+                msg = f" recursive dependency involving fixture '{self.argname}' detected"
             else:
                 msg = f"fixture '{self.argname}' not found"
-            msg += "\n available fixtures: {}".format(", ".join(sorted(available)))
+            msg += f'\n available fixtures: {", ".join(sorted(available))}'
             msg += "\n use 'pytest --fixtures [testpath]' for help on them."
 
         return FixtureLookupErrorRepr(fspath, lineno, tblines, msg, self.argname)
@@ -851,8 +841,7 @@ class FixtureLookupErrorRepr(TerminalRepr):
         # tw.line("FixtureLookupError: %s" %(self.argname), red=True)
         for tbline in self.tblines:
             tw.line(tbline.rstrip())
-        lines = self.errorstring.split("\n")
-        if lines:
+        if lines := self.errorstring.split("\n"):
             tw.line(
                 f"{FormattedExcinfo.fail_marker}       {lines[0].strip()}",
                 red=True,
@@ -916,11 +905,9 @@ def _eval_scope_callable(
         result = scope_callable(fixture_name=fixture_name, config=config)  # type: ignore[call-arg]
     except Exception as e:
         raise TypeError(
-            "Error evaluating {} while defining fixture '{}'.\n"
-            "Expected a function with the signature (*, fixture_name, config)".format(
-                scope_callable, fixture_name
-            )
+            f"Error evaluating {scope_callable} while defining fixture '{fixture_name}'.\nExpected a function with the signature (*, fixture_name, config)"
         ) from e
+
     if not isinstance(result, str):
         fail(
             "Expected {} to return a 'str' while defining fixture '{}', but it returned:\n"
@@ -1060,7 +1047,7 @@ class FixtureDef(Generic[FixtureValue]):
         return result
 
     def cache_key(self, request: SubRequest) -> object:
-        return request.param_index if not hasattr(request, "param") else request.param
+        return request.param if hasattr(request, "param") else request.param_index
 
     def __repr__(self) -> str:
         return "<FixtureDef argname={!r} scope={!r} baseid={!r}>".format(
@@ -1074,15 +1061,11 @@ def resolve_fixture_function(
     """Get the actual callable that can be called to obtain the fixture
     value, dealing with unittest-specific instances and bound methods."""
     fixturefunc = fixturedef.func
-    if fixturedef.unittest:
-        if request.instance is not None:
+    if request.instance is not None:
+        if fixturedef.unittest:
             # Bind the unbound method to the TestCase instance.
             fixturefunc = fixturedef.func.__get__(request.instance)  # type: ignore[union-attr]
-    else:
-        # The fixture function needs to be bound to the actual
-        # request.instance so that code working with "fixturedef" behaves
-        # as expected.
-        if request.instance is not None:
+        else:
             # Handle the case where fixture is defined not in a test class, but some other class
             # (for example a plugin class with a fixture), see #2270.
             if hasattr(fixturefunc, "__self__") and not isinstance(
@@ -1189,11 +1172,10 @@ class FixtureFunctionMarker:
         if name == "request":
             location = getlocation(function)
             fail(
-                "'request' is a reserved word for fixtures, use another name:\n  {}".format(
-                    location
-                ),
+                f"'request' is a reserved word for fixtures, use another name:\n  {location}",
                 pytrace=False,
             )
+
 
         # Type ignored because https://github.com/python/mypy/issues/2087.
         function._pytestfixturefunction = self  # type: ignore[attr-defined]
@@ -1463,8 +1445,7 @@ class FixtureManager:
     def _getautousenames(self, nodeid: str) -> Iterator[str]:
         """Return the names of autouse fixtures applicable to nodeid."""
         for parentnodeid in nodes.iterparentnodeids(nodeid):
-            basenames = self._nodeid_autousenames.get(parentnodeid)
-            if basenames:
+            if basenames := self._nodeid_autousenames.get(parentnodeid):
                 yield from basenames
 
     def getfixtureclosure(

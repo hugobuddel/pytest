@@ -186,7 +186,7 @@ def test_cache_reportheader(env, pytester: Pytester, monkeypatch: MonkeyPatch) -
         monkeypatch.delenv("TOX_ENV_DIR", raising=False)
         expected = ".pytest_cache"
     result = pytester.runpytest("-v")
-    result.stdout.fnmatch_lines(["cachedir: %s" % expected])
+    result.stdout.fnmatch_lines([f"cachedir: {expected}"])
 
 
 def test_cache_reportheader_external_abspath(
@@ -513,8 +513,7 @@ class TestLastFailed:
             pytester.runpytest("-q")
             config = pytester.parseconfigure()
             assert config.cache is not None
-            lastfailed = config.cache.get("cache/lastfailed", -1)
-            return lastfailed
+            return config.cache.get("cache/lastfailed", -1)
 
         lastfailed = rlf(fail_import=0, fail_run=0)
         assert lastfailed == -1

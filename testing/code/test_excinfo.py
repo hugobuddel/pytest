@@ -406,7 +406,7 @@ def test_codepath_Queue_example() -> None:
 
 def test_match_succeeds():
     with pytest.raises(ZeroDivisionError) as excinfo:
-        0 // 0
+        1
     excinfo.match(r".*zero.*")
 
 
@@ -577,7 +577,7 @@ raise ValueError()
         assert "[ExceptionWithBrokenClass() raised in repr()]" in reprlocals.lines[1]
 
     def test_repr_local_truncated(self) -> None:
-        loc = {"l": [i for i in range(10)]}
+        loc = {"l": list(range(10))}
         p = FormattedExcinfo(showlocals=True)
         truncated_reprlocals = p.repr_locals(loc)
         assert truncated_reprlocals is not None
@@ -885,7 +885,7 @@ raise ValueError()
         )
         excinfo = pytest.raises(RuntimeError, mod.entry)
 
-        for style in ("short", "long", "no"):
+        for _ in ("short", "long", "no"):
             p = FormattedExcinfo(style="short")
             reprtb = p.repr_traceback(excinfo)
             assert reprtb.extraline == "!!! Recursion detected (same locals & position)"
@@ -1240,9 +1240,7 @@ raise ValueError()
         assert tw_mock.lines[2] == "        try:"
         assert tw_mock.lines[3] == "            g()"
         assert tw_mock.lines[4] == "        except Exception:"
-        assert tw_mock.lines[5] == ">           raise AttributeError(){}".format(
-            raise_suffix
-        )
+        assert tw_mock.lines[5] == f">           raise AttributeError(){raise_suffix}"
         assert tw_mock.lines[6] == "E           AttributeError"
         assert tw_mock.lines[7] == ""
         line = tw_mock.get_write_msg(8)
@@ -1290,7 +1288,7 @@ raise ValueError()
             mod.f()
 
         # emulate the issue described in #1984
-        attr = "__%s__" % reason
+        attr = f"__{reason}__"
         getattr(excinfo.value, attr).__traceback__ = None
 
         r = excinfo.getrepr()
@@ -1369,10 +1367,7 @@ raise ValueError()
 @pytest.mark.parametrize("style", ["short", "long"])
 @pytest.mark.parametrize("encoding", [None, "utf8", "utf16"])
 def test_repr_traceback_with_unicode(style, encoding):
-    if encoding is None:
-        msg: Union[str, bytes] = "☹"
-    else:
-        msg = "☹".encode(encoding)
+    msg = "☹" if encoding is None else "☹".encode(encoding)
     try:
         raise RuntimeError(msg)
     except RuntimeError:
@@ -1465,7 +1460,7 @@ def test_no_recursion_index_on_recursion_error():
 
     class RecursionDepthError:
         def __getattr__(self, attr):
-            return getattr(self, "_" + attr)
+            return getattr(self, f"_{attr}")
 
     with pytest.raises(RuntimeError) as excinfo:
         RecursionDepthError().trigger

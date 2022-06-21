@@ -170,7 +170,7 @@ class TestPaste:
         assert type(data) is bytes
         lexer = "text"
         assert url == "https://bpa.st"
-        assert "lexer=%s" % lexer in data.decode()
+        assert f"lexer={lexer}" in data.decode()
         assert "code=full-paste-contents" in data.decode()
         assert "expiry=1week" in data.decode()
 
@@ -179,8 +179,7 @@ class TestPaste:
         import urllib.request
 
         def response(url, data):
-            stream = io.BytesIO(b"something bad occurred")
-            return stream
+            return io.BytesIO(b"something bad occurred")
 
         monkeypatch.setattr(urllib.request, "urlopen", response)
         result = pastebin.create_new_paste(b"full-paste-contents")

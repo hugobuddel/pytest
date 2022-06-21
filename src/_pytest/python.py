@@ -171,10 +171,11 @@ def pytest_configure(config: Config) -> None:
 
 
 def async_warn_and_skip(nodeid: str) -> None:
-    msg = "async def functions are not natively supported and have been skipped.\n"
-    msg += (
-        "You need to install a suitable plugin for your async framework, for example:\n"
+    msg = (
+        "async def functions are not natively supported and have been skipped.\n"
+        + "You need to install a suitable plugin for your async framework, for example:\n"
     )
+
     msg += "  - anyio\n"
     msg += "  - pytest-asyncio\n"
     msg += "  - pytest-tornasync\n"
@@ -206,16 +207,17 @@ def pytest_pyfunc_call(pyfuncitem: "Function") -> Optional[object]:
 
 def pytest_collect_file(file_path: Path, parent: nodes.Collector) -> Optional["Module"]:
     if file_path.suffix == ".py":
-        if not parent.session.isinitpath(file_path):
-            if not path_matches_patterns(
-                file_path, parent.config.getini("python_files") + ["__init__.py"]
-            ):
-                return None
+        if not parent.session.isinitpath(
+            file_path
+        ) and not path_matches_patterns(
+            file_path, parent.config.getini("python_files") + ["__init__.py"]
+        ):
+            return None
         ihook = parent.session.gethookproxy(file_path)
-        module: Module = ihook.pytest_pycollect_makemodule(
+        return ihook.pytest_pycollect_makemodule(
             module_path=file_path, parent=parent
         )
-        return module
+
     return None
 
 
@@ -226,10 +228,8 @@ def path_matches_patterns(path: Path, patterns: Iterable[str]) -> bool:
 
 def pytest_pycollect_makemodule(module_path: Path, parent) -> "Module":
     if module_path.name == "__init__.py":
-        pkg: Package = Package.from_parent(parent, path=module_path)
-        return pkg
-    mod: Module = Module.from_parent(parent, path=module_path)
-    return mod
+        return Package.from_parent(parent, path=module_path)
+    return Module.from_parent(parent, path=module_path)
 
 
 @hookimpl(trylast=True)
@@ -240,15 +240,16 @@ def pytest_pycollect_makeitem(
     # Nothing was collected elsewhere, let's do it here.
     if safe_isclass(obj):
         if collector.istestclass(obj, name):
-            klass: Class = Class.from_parent(collector, name=name, obj=obj)
-            return klass
+            return Class.from_parent(collector, name=name, obj=obj)
     elif collector.istestfunction(obj, name):
         # mock seems to store unbound methods (issue473), normalize it.
         obj = getattr(obj, "__func__", obj)
         # We need to try and unwrap the function if it's a functools.partial
         # or a functools.wrapped.
         # We mustn't if it's been wrapped with mock.patch (python 2 only).
-        if not (inspect.isfunction(obj) or inspect.isfunction(get_real_func(obj))):
+        if not inspect.isfunction(obj) and not inspect.isfunction(
+            get_real_func(obj)
+        ):
             filename, lineno = getfslineno(obj)
             warnings.warn_explicit(
                 message=PytestCollectionWarning(
@@ -259,16 +260,15 @@ def pytest_pycollect_makeitem(
                 lineno=lineno + 1,
             )
         elif getattr(obj, "__test__", True):
-            if is_generator(obj):
-                res: Function = Function.from_parent(collector, name=name)
-                reason = "yield tests were removed in pytest 4.0 - {name} will be ignored".format(
-                    name=name
-                )
-                res.add_marker(MARK_GEN.xfail(run=False, reason=reason))
-                res.warn(PytestCollectionWarning(reason))
-                return res
-            else:
+            if not is_generator(obj):
                 return list(collector._genfunctions(name, obj))
+            res: Function = Function.from_parent(collector, name=name)
+            reason = "yield tests were removed in pytest 4.0 - {name} will be ignored".format(
+                name=name
+            )
+            res.add_marker(MARK_GEN.xfail(run=False, reason=reason))
+            res.warn(PytestCollectionWarning(reason))
+            return res
     return None
 
 
@@ -434,9 +434,7 @@ class PyCollector(PyobjMixin, nodes.Collector):
         # Avoid random getattrs and peek in the __dict__ instead.
         dicts = [getattr(self.obj, "__dict__", {})]
         if isinstance(self.obj, type):
-            for basecls in self.obj.__mro__:
-                dicts.append(basecls.__dict__)
-
+            dicts.extend(basecls.__dict__ for basecls in self.obj.__mro__)
         # In each class, nodes should be definition ordered.
         # __dict__ is definition ordered.
         seen: Set[str] = set()
@@ -728,9 +726,10 @@ class Package(Module):
             fspath, fspath.is_dir(), fspath.exists(), fspath.is_symlink()
         )
         ihook = self.session.gethookproxy(fspath)
-        if not self.session.isinitpath(fspath):
-            if ihook.pytest_ignore_collect(collection_path=fspath, config=self.config):
-                return ()
+        if not self.session.isinitpath(fspath) and ihook.pytest_ignore_collect(
+            collection_path=fspath, config=self.config
+        ):
+            return ()
 
         if handle_dupes:
             keepduplicates = self.config.getoption("keepduplicates")
@@ -755,9 +754,12 @@ class Package(Module):
             path = Path(direntry.path)
 
             # We will visit our own __init__.py file, in which case we skip it.
-            if direntry.is_file():
-                if direntry.name == "__init__.py" and path.parent == this_path:
-                    continue
+            if (
+                direntry.is_file()
+                and direntry.name == "__init__.py"
+                and path.parent == this_path
+            ):
+                continue
 
             parts_ = parts(direntry.path)
             if any(
@@ -1037,10 +1039,10 @@ class IdMaker:
         """Try to make an ID for a parameter in a ParameterSet by calling the
         :hook:`pytest_make_parametrize_id` hook."""
         if self.config:
-            id: Optional[str] = self.config.hook.pytest_make_parametrize_id(
+            return self.config.hook.pytest_make_parametrize_id(
                 config=self.config, val=val, argname=argname
             )
-            return id
+
         return None
 
     def _idval_from_value(self, val: object) -> Optional[str]:
@@ -1058,9 +1060,7 @@ class IdMaker:
         elif isinstance(val, enum.Enum):
             return str(val)
         elif isinstance(getattr(val, "__name__", None), str):
-            # Name of a class, function, module, etc.
-            name: str = getattr(val, "__name__")
-            return name
+            return getattr(val, "__name__")
         return None
 
     def _idval_from_value_required(self, val: object, idx: int) -> str:
@@ -1086,7 +1086,7 @@ class IdMaker:
     def _idval_from_argname(argname: str, idx: int) -> str:
         """Make an ID for a parameter in a ParameterSet from the argument name
         and the index of the ParameterSet."""
-        return str(argname) + str(idx)
+        return argname + str(idx)
 
 
 @final
@@ -1398,7 +1398,7 @@ class Metafunc:
             num_ids = len(parametersets)
 
         # num_ids == 0 is a special case: https://github.com/pytest-dev/pytest/issues/1849
-        if num_ids != len(parametersets) and num_ids != 0:
+        if num_ids not in [len(parametersets), 0]:
             msg = "In {}: {} parameter sets specified, with different number of ids: {}"
             fail(msg.format(func_name, len(parametersets), num_ids), pytrace=False)
 
@@ -1429,11 +1429,10 @@ class Metafunc:
             for arg in indirect:
                 if arg not in argnames:
                     fail(
-                        "In {}: indirect fixture '{}' doesn't exist".format(
-                            self.function.__name__, arg
-                        ),
+                        f"In {self.function.__name__}: indirect fixture '{arg}' doesn't exist",
                         pytrace=False,
                     )
+
                 valtypes[arg] = "params"
         else:
             fail(
@@ -1461,11 +1460,10 @@ class Metafunc:
             if arg not in self.fixturenames:
                 if arg in default_arg_names:
                     fail(
-                        "In {}: function already takes an argument '{}' with a default value".format(
-                            func_name, arg
-                        ),
+                        f"In {func_name}: function already takes an argument '{arg}' with a default value",
                         pytrace=False,
                     )
+
                 else:
                     if isinstance(indirect, Sequence):
                         name = "fixture" if arg in indirect else "argument"
@@ -1558,8 +1556,7 @@ def _show_fixtures_per_test(config: Config, session: Session) -> None:
         tw.write(f"{argname}", green=True)
         tw.write(f" -- {prettypath}", yellow=True)
         tw.write("\n")
-        fixture_doc = inspect.getdoc(fixture_def.func)
-        if fixture_doc:
+        if fixture_doc := inspect.getdoc(fixture_def.func):
             write_docstring(
                 tw, fixture_doc.split("\n\n")[0] if verbose <= 0 else fixture_doc
             )
@@ -1629,20 +1626,18 @@ def _showfixtures_main(config: Config, session: Session) -> None:
     available.sort()
     currentmodule = None
     for baseid, module, prettypath, argname, fixturedef in available:
-        if currentmodule != module:
-            if not module.startswith("_pytest."):
-                tw.line()
-                tw.sep("-", f"fixtures defined from {module}")
-                currentmodule = module
+        if currentmodule != module and not module.startswith("_pytest."):
+            tw.line()
+            tw.sep("-", f"fixtures defined from {module}")
+            currentmodule = module
         if verbose <= 0 and argname.startswith("_"):
             continue
         tw.write(f"{argname}", green=True)
         if fixturedef.scope != "function":
-            tw.write(" [%s scope]" % fixturedef.scope, cyan=True)
+            tw.write(f" [{fixturedef.scope} scope]", cyan=True)
         tw.write(f" -- {prettypath}", yellow=True)
         tw.write("\n")
-        doc = inspect.getdoc(fixturedef.func)
-        if doc:
+        if doc := inspect.getdoc(fixturedef.func):
             write_docstring(tw, doc.split("\n\n")[0] if verbose <= 0 else doc)
         else:
             tw.line("    no docstring available", red=True)
@@ -1773,25 +1768,25 @@ class Function(PyobjMixin, nodes.Item):
         self._request._fillfixtures()
 
     def _prunetraceback(self, excinfo: ExceptionInfo[BaseException]) -> None:
-        if hasattr(self, "_obj") and not self.config.getoption("fulltrace", False):
-            code = _pytest._code.Code.from_function(get_real_func(self.obj))
-            path, firstlineno = code.path, code.firstlineno
-            traceback = excinfo.traceback
-            ntraceback = traceback.cut(path=path, firstlineno=firstlineno)
-            if ntraceback == traceback:
-                ntraceback = ntraceback.cut(path=path)
-                if ntraceback == traceback:
-                    ntraceback = ntraceback.filter(filter_traceback)
-                    if not ntraceback:
-                        ntraceback = traceback
-
-            excinfo.traceback = ntraceback.filter()
+        if not hasattr(self, "_obj") or self.config.getoption("fulltrace", False):
+            return
+        code = _pytest._code.Code.from_function(get_real_func(self.obj))
+        path, firstlineno = code.path, code.firstlineno
+        traceback = excinfo.traceback
+        ntraceback = traceback.cut(path=path, firstlineno=firstlineno)
+        if ntraceback == traceback:
+            ntraceback = ntraceback.cut(path=path)
+        if ntraceback == traceback:
+            ntraceback = ntraceback.filter(filter_traceback) or traceback
+        excinfo.traceback = ntraceback.filter()
             # issue364: mark all but first and last frames to
             # only show a single-line message for each frame.
-            if self.config.getoption("tbstyle", "auto") == "auto":
-                if len(excinfo.traceback) > 2:
-                    for entry in excinfo.traceback[1:-1]:
-                        entry.set_repr_style("short")
+        if (
+            self.config.getoption("tbstyle", "auto") == "auto"
+            and len(excinfo.traceback) > 2
+        ):
+            for entry in excinfo.traceback[1:-1]:
+                entry.set_repr_style("short")
 
     # TODO: Type ignored -- breaks Liskov Substitution.
     def repr_failure(  # type: ignore[override]
