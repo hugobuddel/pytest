@@ -24,9 +24,7 @@ def test_make_hook_recorder(pytester: Pytester) -> None:
     recorder = pytester.make_hook_recorder(item.config.pluginmanager)
     assert not recorder.getfailures()
 
-    # (The silly condition is to fool mypy that the code below this is reachable)
-    if 1 + 1 == 2:
-        pytest.xfail("internal reportrecorder tests need refactoring")
+    pytest.xfail("internal reportrecorder tests need refactoring")
 
     class rep:
         excinfo = None
@@ -381,7 +379,7 @@ class TestSysPathsSnapshot:
 
     @staticmethod
     def path(n: int) -> str:
-        return "my-dirty-little-secret-" + str(n)
+        return f"my-dirty-little-secret-{n}"
 
     def test_restore(self, monkeypatch: MonkeyPatch, path_type) -> None:
         other_path_type = self.other_path[path_type]
@@ -576,7 +574,7 @@ def test_linematcher_no_matching(function: str) -> None:
     )
 
     # check the function twice to ensure we don't accumulate the internal buffer
-    for i in range(2):
+    for _ in range(2):
         with pytest.raises(pytest.fail.Exception) as e:
             func = getattr(lm, function)
             func(good_pattern)

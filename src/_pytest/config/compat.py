@@ -53,15 +53,14 @@ class PathAwareHookProxy:
                         ),
                         stacklevel=2,
                     )
-                if path_value is not None:
-                    if fspath_value is not None:
-                        _check_path(path_value, fspath_value)
-                    else:
-                        fspath_value = legacy_path(path_value)
-                else:
+                if path_value is None:
                     assert fspath_value is not None
                     path_value = Path(fspath_value)
 
+                elif fspath_value is not None:
+                    _check_path(path_value, fspath_value)
+                else:
+                    fspath_value = legacy_path(path_value)
                 kw[path_var] = path_value
                 kw[fspath_var] = fspath_value
                 return hook(**kw)
